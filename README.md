@@ -200,4 +200,4 @@ The short version:
 
 ## License
 
-[MIT](LICENSE)
+[AGPL-3.0](LICENSE) — free for personal use; commercial use requires open-sourcing your entire project under AGPL.
