@@ -2176,5 +2176,6 @@ setInterval(fetchLiveFiles, 10000);
 
 
 if __name__ == "__main__":
-    print("Claude Imprint Dashboard: http://localhost:3000", flush=True)
-    uvicorn.run(app, host="127.0.0.1", port=3000, log_level="warning")
+    port = int(os.environ.get("IMPRINT_DASHBOARD_PORT", "3000"))
+    print(f"Claude Imprint Dashboard: http://localhost:{port}", flush=True)
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
