@@ -135,7 +135,7 @@ async def run_heartbeat():
     # Add telegram send server if available
     if TELEGRAM_SERVER.exists():
         mcp_servers["imprint-telegram"] = {
-            "command": "python3",
+            "command": sys.executable,
             "args": [str(TELEGRAM_SERVER)]
         }
 
@@ -145,9 +145,15 @@ async def run_heartbeat():
 
     env = {**os.environ}
     env.pop("CLAUDECODE", None)
-    env["PATH"] = os.path.expanduser("~/.local/bin") + ":" + \
-                  os.path.expanduser("~/.bun/bin") + ":" + \
-                  env.get("PATH", "")
+    # Ensure the venv Scripts/bin dir (where imprint-memory lives) and common
+    # tool dirs are on PATH for the MCP servers claude spawns. os.pathsep is
+    # ';' on Windows, ':' on POSIX.
+    extra_paths = [
+        str(Path(sys.executable).parent),
+        os.path.expanduser("~/.local/bin"),
+        os.path.expanduser("~/.bun/bin"),
+    ]
+    env["PATH"] = os.pathsep.join(extra_paths + [env.get("PATH", "")])
 
     ts = now_local().strftime('%H:%M:%S')
     print(f"[{ts}] Heartbeat starting...")
@@ -216,14 +222,29 @@ async def heartbeat_loop():
 
 def main():
     loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    def _request_exit(*_):
+        raise SystemExit(0)
 
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: sys.exit(0))
+        try:
+            # POSIX: integrate with the event loop
+            loop.add_signal_handler(sig, _request_exit)
+        except (NotImplementedError, AttributeError):
+            # Windows event loops don't implement add_signal_handler;
+            # fall back to a plain signal handler (SIGINT = Ctrl+C).
+            try:
+                signal.signal(sig, _request_exit)
+            except (ValueError, OSError, RuntimeError):
+                pass
 
     try:
         loop.run_until_complete(heartbeat_loop())
     except (KeyboardInterrupt, SystemExit):
         print("\nHeartbeat stopped")
+    finally:
+        loop.close()
 
 
 if __name__ == "__main__":
