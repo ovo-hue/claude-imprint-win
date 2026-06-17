@@ -11,3 +11,6 @@ pyyaml>=6.0
 
 # System status (imprint-utils)
 psutil>=6.0.0
+
+# Cron daemon (scripts/cron_daemon.py) - no-admin scheduler alternative
+schedule>=1.2.0

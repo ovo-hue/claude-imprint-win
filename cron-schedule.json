@@ -1,0 +1,7 @@
+[
+  { "name": "morning-briefing",       "prompt": "cron-prompts/morning-briefing.md",       "day": "daily",  "time": "08:00" },
+  { "name": "drink-water",             "prompt": "cron-prompts/drink-water.md",             "day": "daily",  "time": "14:00" },
+  { "name": "health-check",            "prompt": "cron-prompts/health-check.md",            "day": "daily",  "time": "21:00" },
+  { "name": "nightly-consolidation",   "prompt": "cron-prompts/nightly-consolidation.md",   "day": "daily",  "time": "23:30" },
+  { "name": "weekly-memory-audit",     "prompt": "cron-prompts/weekly-memory-audit.md",     "day": "sunday", "time": "22:00" }
+]

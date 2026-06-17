@@ -17,6 +17,7 @@
 
 param(
     [switch]$Heartbeat,
+    [switch]$Cron,
     [switch]$Telegram,
     [switch]$NoTunnel,
     [switch]$NoDashboard
@@ -179,6 +180,19 @@ if ($Heartbeat) {
                 -OutLog (Join-Path $LogDir "heartbeat.out.log") -ErrLog (Join-Path $LogDir "heartbeat.err.log") `
                 -ProcName "python" -Extra @{ cmdline_match = "agent.py" }
         if ($e) { $procs["heartbeat"] = $e; Write-Host "      [ok] PID $($e.pid)" -ForegroundColor Green }
+    }
+}
+
+# 4b. Cron daemon (opt-in; the no-admin alternative to Task Scheduler)
+if ($Cron) {
+    if (Test-Running $procs["cron"]) {
+        Write-Host "  [skip] Cron daemon already running"
+    } else {
+        Write-Host "  Starting Cron daemon..."
+        $e = Start-Svc -File $VenvPython -ArgList @('-u', "`"$(Join-Path $ProjectDir 'scripts\cron_daemon.py')`"") `
+                -OutLog (Join-Path $LogDir "cron-daemon.out.log") -ErrLog (Join-Path $LogDir "cron-daemon.err.log") `
+                -ProcName "python" -Extra @{ cmdline_match = "cron_daemon.py" }
+        if ($e) { $procs["cron"] = $e; Write-Host "      [ok] PID $($e.pid)" -ForegroundColor Green }
     }
 }
 
