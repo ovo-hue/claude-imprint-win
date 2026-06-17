@@ -7,7 +7,6 @@ localhost:3000 — manage all components: start/stop/status
 import os
 import re
 import subprocess
-import signal
 import json
 import shutil
 from pathlib import Path
@@ -26,28 +25,52 @@ TZ_OFFSET = int(os.environ.get("TZ_OFFSET", 0))
 LOGS = BASE / "logs"
 LOGS.mkdir(exist_ok=True)
 
+# ─── Command resolution (cross-platform) ────────────────
+
+MEMORY_PORT = int(os.environ.get("IMPRINT_HTTP_PORT", "8000"))
+
+
+def _venv_bin(name: str) -> str:
+    """Resolve a console script next to the running interpreter, else PATH."""
+    cand = Path(sys.executable).parent / (name + (".exe" if os.name == "nt" else ""))
+    if cand.exists():
+        return str(cand)
+    return shutil.which(name) or name
+
+
+def _cloudflared() -> str:
+    """cloudflared from PATH, else ~/cloudflared.exe (common on Windows)."""
+    found = shutil.which("cloudflared")
+    if found:
+        return found
+    local = Path.home() / "cloudflared.exe"
+    return str(local) if local.exists() else "cloudflared"
+
+
 # ─── Components ──────────────────────────────────────────
 
 COMPONENTS = {
     "memory_http": {
         "name": "🧠 Memory HTTP",
         "pid_file": ".pid-http",
-        "start_cmd": ["imprint-memory", "--http"],
+        "start_cmd": [_venv_bin("imprint-memory"), "--http"],
         "log_file": "logs/http.log",
         "type": "background",
-        "check_port": 8000,
+        "check_port": MEMORY_PORT,
     },
     "tunnel": {
         "name": "🌐 Cloudflare Tunnel",
         "pid_file": ".pid-tunnel",
-        "start_cmd": ["cloudflared", "tunnel", "run", "my-tunnel"],
+        "start_cmd": [_cloudflared(), "tunnel", "--url", f"http://localhost:{MEMORY_PORT}"],
         "log_file": "logs/tunnel.log",
         "type": "background",
-        "grep_pattern": "cloudflared tunnel",
+        "grep_pattern": f"localhost:{MEMORY_PORT}",
+        "name_hint": "cloudflared",
     },
     "telegram": {
         "name": "📨 Telegram",
         "grep_pattern": "channels plugin:telegram",
+        "name_hint": "node",
         "terminal_cmd": "claude --permission-mode auto --channels plugin:telegram@claude-plugins-official",
         "type": "terminal",
     },
@@ -56,32 +79,79 @@ COMPONENTS = {
 
 # ─── Status Detection ────────────────────────────────────
 
+def _pid_on_port(port):
+    """Return the PID listening on a local TCP port, or None (cross-platform)."""
+    try:
+        for c in psutil.net_connections(kind="inet"):
+            if c.status == psutil.CONN_LISTEN and c.laddr and c.laddr.port == port:
+                return c.pid
+    except (psutil.AccessDenied, Exception):
+        pass
+    return None
+
+
+def _pid_by_cmdline(pattern, name_hint=None):
+    """Return the first PID whose command line contains pattern, or None.
+
+    Reading cmdline for every process is slow on Windows, so when name_hint is
+    given we fetch the cheap process name first and only read the command line
+    for processes whose name matches."""
+    hint = name_hint.lower() if name_hint else None
+    for p in psutil.process_iter(["pid", "name"]):
+        try:
+            if hint and hint not in (p.info["name"] or "").lower():
+                continue
+            cl = " ".join(p.cmdline() or [])  # lazy: only for candidates
+            if pattern and pattern in cl:
+                return p.info["pid"]
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return None
+
+
+def _kill_tree(pid):
+    """Terminate a process and all its children (replaces os.kill/SIGTERM).
+    pip console-script and venv python launchers spawn the real worker as a
+    child, so killing only the parent would orphan it + leak the port."""
+    try:
+        parent = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return
+    procs = parent.children(recursive=True) + [parent]
+    for p in procs:
+        try:
+            p.terminate()
+        except psutil.NoSuchProcess:
+            pass
+    _, alive = psutil.wait_procs(procs, timeout=3)
+    for p in alive:
+        try:
+            p.kill()
+        except psutil.NoSuchProcess:
+            pass
+
+
+def _detach_kwargs():
+    """Popen flags to detach a long-running child (cross-platform).
+    Windows has no start_new_session; use a new process group + detached."""
+    if os.name == "nt":
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+        return {"creationflags": flags}
+    return {"start_new_session": True}
+
+
 def get_pid_status(comp):
-    """Check background process status: port → grep → PID file"""
-    # Method 1: port detection (lsof, no root needed)
+    """Check background process status: port → cmdline → PID file"""
+    # Method 1: port detection
     if "check_port" in comp:
-        try:
-            result = subprocess.run(
-                ["lsof", "-ti", f":{comp['check_port']}"],
-                capture_output=True, text=True, timeout=3
-            )
-            pids = [p for p in result.stdout.strip().split("\n") if p]
-            if pids:
-                return {"running": True, "pid": int(pids[0])}
-        except Exception:
-            pass
-    # Method 2: process name grep
+        pid = _pid_on_port(comp["check_port"])
+        if pid:
+            return {"running": True, "pid": pid}
+    # Method 2: command-line match
     if "grep_pattern" in comp:
-        try:
-            result = subprocess.run(
-                ["pgrep", "-f", comp["grep_pattern"]],
-                capture_output=True, text=True, timeout=3
-            )
-            pids = [p for p in result.stdout.strip().split("\n") if p]
-            if pids:
-                return {"running": True, "pid": int(pids[0])}
-        except Exception:
-            pass
+        pid = _pid_by_cmdline(comp["grep_pattern"], comp.get("name_hint"))
+        if pid:
+            return {"running": True, "pid": pid}
     # Method 3: PID file fallback
     pid_path = BASE / comp.get("pid_file", "")
     if pid_path and pid_path.exists():
@@ -98,17 +168,9 @@ def get_pid_status(comp):
 
 
 def get_terminal_status(comp):
-    """Check terminal window process status"""
-    try:
-        result = subprocess.run(
-            ["pgrep", "-f", comp["grep_pattern"]],
-            capture_output=True, text=True, timeout=3
-        )
-        pids = result.stdout.strip().split("\n")
-        pids = [p for p in pids if p]
-        return {"running": len(pids) > 0, "pid": int(pids[0]) if pids else None}
-    except Exception:
-        return {"running": False, "pid": None}
+    """Check terminal window process status by command line."""
+    pid = _pid_by_cmdline(comp["grep_pattern"], comp.get("name_hint"))
+    return {"running": pid is not None, "pid": pid}
 
 
 def get_tunnel_url():
@@ -266,7 +328,7 @@ async def api_start(component: str):
                 comp["start_cmd"],
                 stdout=log, stderr=log,
                 cwd=str(BASE),
-                start_new_session=True,
+                **_detach_kwargs(),
             )
         pid_path = BASE / comp["pid_file"]
         pid_path.write_text(str(proc.pid))
@@ -274,7 +336,16 @@ async def api_start(component: str):
     else:
         # Terminal / interactive component
         cmd = comp["terminal_cmd"]
-        if shutil.which("osascript"):
+        if os.name == "nt":
+            # Windows: open an interactive console window (claude is a .cmd, so
+            # go through the shell to honor PATHEXT)
+            proc = subprocess.Popen(
+                cmd, shell=True, cwd=str(BASE),
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            (BASE / f".pid-{component}").write_text(str(proc.pid))
+            return {"ok": True, "pid": proc.pid, "message": "Opened in a new console window"}
+        elif shutil.which("osascript"):
             # macOS: open in Terminal window
             try:
                 result = subprocess.run(
@@ -306,7 +377,7 @@ async def api_start(component: str):
                     cmd.split(),
                     stdout=log, stderr=log,
                     cwd=str(BASE),
-                    start_new_session=True,
+                    **_detach_kwargs(),
                 )
             (BASE / pid_file).write_text(str(proc.pid))
             return {"ok": True, "pid": proc.pid}
@@ -323,10 +394,7 @@ async def api_stop(component: str):
         # Get actual PID via status detection
         status = get_pid_status(comp)
         if status["running"] and status["pid"]:
-            try:
-                os.kill(status["pid"], signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                pass
+            _kill_tree(status["pid"])
         # Clean up PID file
         pid_file = comp.get("pid_file", "")
         if pid_file:
@@ -334,17 +402,14 @@ async def api_stop(component: str):
             pid_path.unlink(missing_ok=True)
         return {"ok": True}
     else:
-        if shutil.which("osascript"):
+        if os.name != "nt" and shutil.which("osascript"):
             # macOS: can't force-kill terminal sessions
             return {"ok": True, "message": "Please close the terminal window manually (Ctrl+C)"}
         else:
-            # Linux: kill the background process
+            # Windows / Linux: kill the tracked process tree
             status = get_terminal_status(comp)
             if status["running"] and status["pid"]:
-                try:
-                    os.kill(status["pid"], signal.SIGTERM)
-                except (ProcessLookupError, PermissionError):
-                    pass
+                _kill_tree(status["pid"])
             pid_file = f".pid-{component}"
             (BASE / pid_file).unlink(missing_ok=True)
             return {"ok": True}
