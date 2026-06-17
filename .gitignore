@@ -10,6 +10,11 @@ logs/*.txt
 # PID files
 .pid*
 
+# Hook runtime state (generated; contains personal conversation data)
+recent_context.md
+logs/.offset-*
+logs/.catchup-*
+
 # Daily logs (generated, contain personal data)
 memory/????-??-??.md
 
