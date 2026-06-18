@@ -65,6 +65,22 @@ if (-not (Test-Path $PromptFile)) {
 }
 $Prompt = Get-Content $PromptFile -Raw
 
+# Inject Ombre Brain memory where a {{OMBRE_MEMORY}} placeholder appears, so the
+# message has context/warmth. Graceful: live read -> offline cache -> skip.
+if ($Prompt -match '\{\{OMBRE_MEMORY\}\}') {
+    $ombreUrl = if ($env:OMBRE_BREATH_URL) { $env:OMBRE_BREATH_URL } else { "http://localhost:8000/breath-hook" }
+    $ombre = $null
+    try {
+        $ombre = (Invoke-WebRequest -Uri $ombreUrl -UseBasicParsing -TimeoutSec 10).Content
+    } catch {
+        $coreFile = Join-Path $env:IMPRINT_DATA_DIR "ombre-core.md"
+        if (Test-Path $coreFile) { $ombre = Get-Content $coreFile -Raw }
+    }
+    if (-not $ombre) { $ombre = "(记忆系统暂不可达，凭你已有的了解说话即可)" }
+    $block = "## Ombre Brain 记忆（你和逸晨的共同记忆 — 让消息有上下文、有温度）`r`n$ombre"
+    $Prompt = $Prompt.Replace('{{OMBRE_MEMORY}}', $block)
+}
+
 # --- Auth ----------------------------------------------------------------
 # Max Plan users: store the OAuth token in ~/.claude/cron-token
 $TokenFile = Join-Path $env:USERPROFILE ".claude\cron-token"

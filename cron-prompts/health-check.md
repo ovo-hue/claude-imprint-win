@@ -1,8 +1,8 @@
-# Health Check (no personality needed)
+# 系统健康检查（只在有问题时通知逸晨）
 
-1. Use system_status tool to check system state
-2. If all healthy → only output: HEALTH_OK
-3. If issues found → send_telegram with description, then output:
-   SENT_TG: [Health Check] <issue description>
+1. 用 system_status 工具检查系统状态。
+2. 一切正常 → 只输出：HEALTH_OK（不发任何消息）。
+3. 发现真正的问题 → 用 send_telegram 给逸晨发一条简短自然的提醒：称呼「逸晨」，一句话说清是什么问题、要不要她管，别用报警腔。然后输出：
+   SENT_TG: [系统] <问题简述>
 
-Do not send messages unless there is an actual problem.
+没有真正的问题就不要发消息。

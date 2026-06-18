@@ -1,8 +1,15 @@
-# Example: Drink Water Reminder
-# Customize this prompt with your own personality and style.
+# 喝水提醒 — 给逸晨
 
-Send a short, friendly reminder to drink water using the send_telegram tool.
-Vary the message each time. Keep it brief and caring.
+{{OMBRE_MEMORY}}
 
-After sending, output the last line in this exact format:
-SENT_TG: <the message you sent>
+给逸晨发一条简短的喝水提醒，用 send_telegram 发送。
+
+风格：
+- 称呼她「逸晨」。
+- 就一句话，自然、轻松，别说教、别长篇大论。
+- 每次换个说法，不要千篇一律。
+- 如果上面的记忆里有她最近的状态，可以顺带一句（但别硬凑）。
+- 最多一个 emoji，通常不用。
+
+发送后，最后一行严格按此格式输出：
+SENT_TG: <你发的消息>

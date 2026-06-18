@@ -11,6 +11,7 @@ import os
 import signal
 import shutil
 import sys
+import urllib.request
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -38,6 +39,11 @@ HEARTBEAT_SESSION_FILE = PROJECT_DIR / "data" / "heartbeat_session.txt"
 
 # Paths to MCP server entry points
 TELEGRAM_SERVER = PROJECT_DIR / "packages" / "imprint_telegram" / "server.py"
+
+# Ombre Brain (claude.ai's memory system) — read its surfaced memory before
+# composing a message so the heartbeat sounds like it remembers, not a template.
+OMBRE_BREATH_URL = os.environ.get("OMBRE_BREATH_URL", "http://localhost:8000/breath-hook")
+OMBRE_CORE_FILE = DATA_DIR / "ombre-core.md"  # offline fallback (pinned core principles)
 
 
 def _get_telegram_plugin_dir() -> Path:
@@ -70,11 +76,53 @@ def save_session_id(sid: str):
     HEARTBEAT_SESSION_FILE.write_text(sid)
 
 
+def _extract_core(breath_text: str) -> str:
+    """Keep only the pinned '核心准则' sections from a breath-hook payload."""
+    parts = breath_text.split("\n---\n")
+    core = [p for p in parts if "核心准则" in p]
+    return ("\n---\n".join(core)).strip()
+
+
+def _refresh_core_cache(breath_text: str):
+    """Persist the pinned core principles as an offline fallback."""
+    core = _extract_core(breath_text)
+    if not core:
+        return
+    try:
+        OMBRE_CORE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        OMBRE_CORE_FILE.write_text(core, encoding="utf-8")
+    except OSError:
+        pass
+
+
+def fetch_ombre_memory() -> str | None:
+    """Read surfaced memory from Ombre Brain (localhost). On success also
+    refresh the offline core cache. On any failure, fall back to that cache.
+    Returns None if no memory is available at all (graceful degradation)."""
+    try:
+        # Force a direct connection: Ombre is local, never via the proxy.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(OMBRE_BREATH_URL, timeout=8) as resp:
+            text = resp.read().decode("utf-8", errors="replace").strip()
+        if text:
+            _refresh_core_cache(text)
+            return text
+    except Exception as e:
+        print(f"[{now_local().strftime('%H:%M:%S')}] Ombre Brain unreachable ({e}); using fallback")
+
+    if OMBRE_CORE_FILE.exists():
+        cached = OMBRE_CORE_FILE.read_text(encoding="utf-8").strip()
+        return cached or None
+    return None
+
+
 def build_heartbeat_prompt() -> str:
     """Build heartbeat prompt with personality + rules + memory + checklist"""
     claude_md = GLOBAL_CLAUDE_MD.read_text(encoding="utf-8") if GLOBAL_CLAUDE_MD.exists() else ""
     heartbeat_md = HEARTBEAT_FILE.read_text(encoding="utf-8") if HEARTBEAT_FILE.exists() else ""
     memory_ctx = MEMORY_INDEX.read_text(encoding="utf-8") if MEMORY_INDEX.exists() else "(No memory index)"
+    ombre = fetch_ombre_memory()
+    ombre_section = ombre if ombre else "(记忆系统暂不可达，凭你已有的了解说话即可)"
     current_time = now_local().strftime("%Y-%m-%d %H:%M (%A)")
     quiet = is_quiet_hours()
 
@@ -86,20 +134,31 @@ Current time: {current_time}
 ## Identity and Rules
 {claude_md}
 
-## Memory
+## Memory (imprint index)
 {memory_ctx}
+
+## Ombre Brain 记忆（你和逸晨的共同记忆 — 用来让消息有温度、有上下文）
+{ombre_section}
 
 ## Heartbeat Checklist
 {heartbeat_md}
 
-## Instructions
-1. Go through the heartbeat checklist
-2. Decide if any action or notification is needed
-3. If notification needed, use Telegram reply tool{f' (chat_id {TELEGRAM_CHAT_ID})' if TELEGRAM_CHAT_ID else ''}
-4. If there's new important information, save it to memory
-5. If all clear, reply with HEARTBEAT_OK
+## 说话风格（发消息时严格遵守）
+- 称呼用户为「逸晨」。
+- 自然、简洁，像日常聊天发来的一两句话，不是播报。
+- 不堆 emoji，整条消息最多一个，能不用就不用。
+- 不要客套话、不要"祝你编码顺利 / 加油哦"这类套路结尾。
+- 若从上面的记忆里知道逸晨最近在忙什么、或有什么心情/约定，自然地提一句，让她感到被记得。
+- 提到天气时一句话带过，不要列表式罗列数据。
 
-Important: Don't send messages just to prove you're alive. Only notify when there's genuinely useful information.
+## Instructions
+1. Go through the heartbeat checklist.
+2. Decide if any action or notification is actually warranted.
+3. If you message 逸晨, use the Telegram tool{f' (chat_id {TELEGRAM_CHAT_ID})' if TELEGRAM_CHAT_ID else ''} and follow 说话风格 above.
+4. If there's new important information, save it to memory.
+5. If nothing is worth saying, reply with HEARTBEAT_OK and send nothing.
+
+Important: Don't message just to prove you're alive. Only reach out when there's something genuinely worth saying to 逸晨.
 """
     return prompt
 
