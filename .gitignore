@@ -27,8 +27,10 @@ memories/*
 data/*
 !data/.gitkeep
 
-# OAuth credentials
+# OAuth credentials & secrets
 .imprint-oauth.json
+.env
+imprint.env
 
 # Python
 __pycache__/

@@ -56,6 +56,22 @@ $env:IMPRINT_DASHBOARD_PORT = "$DashboardPort"
 New-Item -ItemType Directory -Force -Path $LogDir  | Out-Null
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
+# --- Secrets / environment (telegram token, proxy, TZ) -------------------
+# Loaded from <DataDir>\imprint.env (outside the repo, never committed) so all
+# child services (heartbeat, telegram MCP, dashboard) inherit them.
+function Import-EnvFile($path) {
+    if (-not (Test-Path $path)) { return }
+    foreach ($line in Get-Content $path) {
+        $t = $line.Trim()
+        if (-not $t -or $t.StartsWith('#') -or ($t -notmatch '=')) { continue }
+        $idx = $t.IndexOf('=')
+        $k = $t.Substring(0, $idx).Trim()
+        $v = $t.Substring($idx + 1).Trim()
+        if ($k) { Set-Item -Path "Env:$k" -Value $v }
+    }
+}
+Import-EnvFile (Join-Path $DataDir "imprint.env")
+
 # --- Process registry helpers --------------------------------------------
 function Read-Procs {
     if (Test-Path $ProcFile) {

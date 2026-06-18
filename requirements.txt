@@ -14,3 +14,6 @@ psutil>=6.0.0
 
 # Cron daemon (scripts/cron_daemon.py) - no-admin scheduler alternative
 schedule>=1.2.0
+
+# Verify TLS against the OS cert store (works behind TLS-intercepting proxies)
+truststore>=0.9.0

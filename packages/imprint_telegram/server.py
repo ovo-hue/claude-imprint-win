@@ -16,6 +16,15 @@ import urllib.request
 import urllib.parse
 from pathlib import Path
 
+# Verify TLS against the OS certificate store so HTTPS works behind a
+# TLS-intercepting proxy (common with xray/v2ray + system security tools on
+# Windows). No-op on systems where the default store already suffices.
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except Exception:
+    pass
+
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("imprint-telegram")

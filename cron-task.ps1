@@ -35,6 +35,19 @@ $Model       = if ($env:IMPRINT_CRON_MODEL) { $env:IMPRINT_CRON_MODEL } else { "
 
 if (-not $env:IMPRINT_DATA_DIR) { $env:IMPRINT_DATA_DIR = Join-Path $env:USERPROFILE ".imprint" }
 
+# Load secrets / proxy / TZ from <DataDir>\imprint.env (outside the repo)
+$EnvFile = Join-Path $env:IMPRINT_DATA_DIR "imprint.env"
+if (Test-Path $EnvFile) {
+    foreach ($line in Get-Content $EnvFile) {
+        $t = $line.Trim()
+        if (-not $t -or $t.StartsWith('#') -or ($t -notmatch '=')) { continue }
+        $idx = $t.IndexOf('=')
+        $k = $t.Substring(0, $idx).Trim()
+        $v = $t.Substring($idx + 1).Trim()
+        if ($k) { Set-Item -Path "Env:$k" -Value $v }
+    }
+}
+
 # claude is a .cmd shim; resolve it (Task Scheduler has a minimal PATH)
 $ClaudeBin = (Get-Command claude -ErrorAction SilentlyContinue).Source
 if (-not $ClaudeBin) { $ClaudeBin = Join-Path $env:APPDATA "npm\claude.cmd" }
