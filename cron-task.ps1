@@ -128,17 +128,26 @@ if ($SentLine) {
 
     $DbTS = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $LogScript = Join-Path $ProjectDir "scripts\log_conversation.py"
-    & $VenvPython $LogScript `
-        --platform telegram --direction out --speaker Agent `
-        --content $Display --session "cron-$TaskName" --entrypoint cron `
-        --created-at $DbTS 2>&1 | ForEach-Object { Add-Content $LogFile $_.ToString() }
+    # Bookkeeping is best-effort: never let it fail the task.
+    try {
+        & $VenvPython $LogScript `
+            --platform telegram --direction out --speaker Agent `
+            --content $Display --session "cron-$TaskName" --entrypoint cron `
+            --created-at $DbTS 2>&1 | ForEach-Object { Add-Content $LogFile $_.ToString() }
+    } catch {
+        Add-Content $LogFile "[$TS] WARN: log_conversation failed: $($_.Exception.Message)"
+    }
 
     Add-Content $ContextFile "[$TSShort tg/out] $Display"
     Add-Content $LogFile "[$TS] Logged to DB + recent_context: $Display"
 }
 
-# Sync recent_context.md -> CLAUDE.md AUTO section
-& $VenvPython (Join-Path $ProjectDir "update_claude_md.py") 2>&1 |
-    ForEach-Object { Add-Content $LogFile $_.ToString() }
+# Sync recent_context.md -> CLAUDE.md AUTO section (best-effort)
+try {
+    & $VenvPython (Join-Path $ProjectDir "update_claude_md.py") 2>&1 |
+        ForEach-Object { Add-Content $LogFile $_.ToString() }
+} catch {
+    Add-Content $LogFile "[$TS] WARN: update_claude_md failed: $($_.Exception.Message)"
+}
 
 Add-Content $LogFile "[$TS] === $TaskName done ==="

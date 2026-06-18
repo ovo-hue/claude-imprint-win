@@ -13,8 +13,17 @@ Writes to:
 """
 
 import sqlite3
+import sys
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+
+# Print UTF-8 regardless of the Windows console/pipe code page (avoids cp936
+# crashes on the emoji/CJK this script prints).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # --- Config ---
 import os

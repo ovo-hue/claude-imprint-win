@@ -16,6 +16,14 @@ import os
 import sys
 from pathlib import Path
 
+# Print UTF-8 regardless of the Windows console/pipe code page (cp936 would
+# otherwise crash on emoji/CJK in logged content).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Try to import from pip-installed package first, then local
 try:
     from imprint_memory.db import _get_db, now_str
