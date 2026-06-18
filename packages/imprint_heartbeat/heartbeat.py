@@ -109,9 +109,14 @@ async def run_heartbeat():
     prompt = build_heartbeat_prompt()
     session_id = load_session_id()
 
+    # Prompt is fed via stdin, NOT as a -p argument: on Windows the claude
+    # launcher is a .cmd shim, and a huge multi-line prompt passed as an argv
+    # entry gets mangled by cmd.exe, silently dropping the flags that follow
+    # (e.g. --model), which then falls back to an unusable default model.
     cmd = [
         CLAUDE_BIN,
-        "-p", prompt,
+        "-p",
+        "--model", os.environ.get("IMPRINT_HEARTBEAT_MODEL", "sonnet"),
         "--output-format", "json",
         "--max-budget-usd", "0.50",
     ]
@@ -139,8 +144,12 @@ async def run_heartbeat():
             "args": [str(TELEGRAM_SERVER)]
         }
 
-    mcp_config = json.dumps({"mcpServers": mcp_servers})
-    cmd.extend(["--mcp-config", mcp_config])
+    # Write the MCP config to a file and pass its path (an inline JSON arg is
+    # also mangled by the Windows .cmd launcher).
+    mcp_config_path = DATA_DIR / "heartbeat-mcp.json"
+    mcp_config_path.parent.mkdir(parents=True, exist_ok=True)
+    mcp_config_path.write_text(json.dumps({"mcpServers": mcp_servers}), encoding="utf-8")
+    cmd.extend(["--mcp-config", str(mcp_config_path)])
     cmd.extend(["--permission-mode", "auto"])
 
     env = {**os.environ}
@@ -162,6 +171,7 @@ async def run_heartbeat():
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(PROJECT_DIR),
@@ -169,7 +179,7 @@ async def run_heartbeat():
         )
 
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(),
+            proc.communicate(input=prompt.encode("utf-8")),
             timeout=300,
         )
 
@@ -177,7 +187,7 @@ async def run_heartbeat():
 
         if proc.returncode != 0:
             err = stderr.decode("utf-8", errors="replace")
-            print(f"[{ts}] Heartbeat failed: {err[:200]}")
+            print(f"[{ts}] Heartbeat failed (rc={proc.returncode}): {err[:500]}")
             return
 
         try:
