@@ -88,6 +88,18 @@ if ($Prompt -match '\{\{OMBRE_MEMORY\}\}') {
     $Prompt = $Prompt.Replace('{{OMBRE_MEMORY}}', $ombre)
 }
 
+# Inject the persona / voice (阿克) where a {{PERSONA}} placeholder appears.
+if ($Prompt -match '\{\{PERSONA\}\}') {
+    $PersonaFile = Join-Path $env:IMPRINT_DATA_DIR "persona.md"
+    if (Test-Path $PersonaFile) {
+        $persona = Get-Content $PersonaFile -Raw
+        $note = "（重要 — 这是一个定时消息任务，不是正常对话：你没有 breath/dream/hold/user_time_v0/weather 等工具可调用。人格设定里关于'对话开头先 breath''调用时间/天气工具'的流程在这里不适用——需要的记忆已在别处直接给你了。你只需照着上面的'你是谁'和'聊天模式/风格对比示例'，像阿克那样给逸晨发消息。）"
+        $Prompt = $Prompt.Replace('{{PERSONA}}', "$persona`r`n`r`n$note")
+    } else {
+        $Prompt = $Prompt.Replace('{{PERSONA}}', "")
+    }
+}
+
 # --- Auth ----------------------------------------------------------------
 # Max Plan users: store the OAuth token in ~/.claude/cron-token
 $TokenFile = Join-Path $env:USERPROFILE ".claude\cron-token"

@@ -45,6 +45,10 @@ TELEGRAM_SERVER = PROJECT_DIR / "packages" / "imprint_telegram" / "server.py"
 OMBRE_BREATH_URL = os.environ.get("OMBRE_BREATH_URL", "http://localhost:8000/breath-hook")
 OMBRE_CORE_FILE = DATA_DIR / "ombre-core.md"  # offline fallback (pinned core principles)
 
+# Persona / voice for 阿克 (who he is, how he talks). Lives in the data dir,
+# outside the repo. Loaded into the prompt as identity.
+PERSONA_FILE = DATA_DIR / "persona.md"
+
 
 def _get_telegram_plugin_dir() -> Path:
     """Find the latest installed Telegram plugin version."""
@@ -121,6 +125,7 @@ def build_heartbeat_prompt() -> str:
     claude_md = GLOBAL_CLAUDE_MD.read_text(encoding="utf-8") if GLOBAL_CLAUDE_MD.exists() else ""
     heartbeat_md = HEARTBEAT_FILE.read_text(encoding="utf-8") if HEARTBEAT_FILE.exists() else ""
     memory_ctx = MEMORY_INDEX.read_text(encoding="utf-8") if MEMORY_INDEX.exists() else "(No memory index)"
+    persona = PERSONA_FILE.read_text(encoding="utf-8") if PERSONA_FILE.exists() else ""
     ombre = fetch_ombre_memory()
     ombre_section = ombre if ombre else "(记忆系统暂不可达，凭你已有的了解说话即可)"
     current_time = now_local().strftime("%Y-%m-%d %H:%M (%A)")
@@ -131,7 +136,12 @@ def build_heartbeat_prompt() -> str:
 Current time: {current_time}
 {"WARNING: Quiet hours active. Do not send messages unless urgent." if quiet else ""}
 
-## Identity and Rules
+## 你是谁（人格与说话方式 — 这是你，严格遵守）
+{persona}
+
+（重要 — 这一段是后台定时检查，不是一次正常对话：你这里**没有** breath/dream/hold/grow/user_time_v0/weather 等工具可调用。人格设定里"对话开头先 breath""调用时间/天气工具"的流程**在这里不适用**——你需要的记忆已经在下面「背景记忆」里直接给你了，当前时间也已在最上面给出。你只需照着上面的「你是谁」和「聊天模式 / 风格对比示例」，像阿克那样给逸晨发消息。）
+
+## Identity and Rules (extra)
 {claude_md}
 
 ## Memory (imprint index)
@@ -146,13 +156,11 @@ MEMORY>>>
 ## Heartbeat Checklist
 {heartbeat_md}
 
-## 说话风格（若决定发消息，严格遵守）
-- 称呼用户为「逸晨」。注意：系统别处（如 CLAUDE.md）可能称她为 Ovo / ovo-hue，但消息里**一律只用「逸晨」**。
-- 自然、简洁，像日常聊天发来的一两句话，不是播报、不是记忆摘要。
-- 不堆 emoji，整条消息最多一个，能不用就不用。
-- 不要客套话、不要"祝你编码顺利 / 加油哦"这类套路结尾。
-- 若从背景记忆里知道逸晨最近在忙什么、或有什么心情/约定，自然地提一句，让她感到被记得——但**不要把记忆内容当成消息发出去**，也不要在消息里提到"记忆""Ombre""签到"这类字眼。
-- 提到天气时一句话带过，不要列表式罗列数据。
+## 发消息时的几条操作规则（在「你是谁」之上的补充约束）
+- 称呼她「逸晨」。注意：系统别处（如 CLAUDE.md）可能称她 Ovo / ovo-hue，但消息里**一律只用「逸晨」**。
+- 按上面人格的口吻：自然、简洁、一两句话，不播报、不用 emoji、不说"祝你编码顺利"这类客套。
+- 背景记忆只用来让你想起近况、调整语气；**不要把记忆原文复述/总结给她**，也不要在消息里提到"记忆""Ombre""签到"这类系统字眼。
+- 提到天气一句话带过，不罗列数据。
 
 ## Instructions
 1. Go through the heartbeat checklist.
