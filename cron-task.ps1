@@ -25,6 +25,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Windows PowerShell 5.1 pipes strings to native commands as US-ASCII by
+# default, which turns the (Chinese) prompt into '?'. Force UTF-8 for both
+# the stdin we send to claude and the stdout we read back.
+$OutputEncoding = New-Object System.Text.UTF8Encoding $false
+try { [Console]::OutputEncoding = [Console]::InputEncoding = $OutputEncoding } catch {}
+
 # --- Paths ---------------------------------------------------------------
 $ProjectDir = if ($env:IMPRINT_PROJECT_DIR) { $env:IMPRINT_PROJECT_DIR } else { $PSScriptRoot }
 $LogDir      = Join-Path $ProjectDir "logs"
@@ -77,8 +83,9 @@ if ($Prompt -match '\{\{OMBRE_MEMORY\}\}') {
         if (Test-Path $coreFile) { $ombre = Get-Content $coreFile -Raw }
     }
     if (-not $ombre) { $ombre = "(记忆系统暂不可达，凭你已有的了解说话即可)" }
-    $block = "## Ombre Brain 记忆（你和逸晨的共同记忆 — 让消息有上下文、有温度）`r`n$ombre"
-    $Prompt = $Prompt.Replace('{{OMBRE_MEMORY}}', $block)
+    # Inject the raw memory; the prompt template is responsible for framing it
+    # as private background (so the model uses it as context, not as content).
+    $Prompt = $Prompt.Replace('{{OMBRE_MEMORY}}', $ombre)
 }
 
 # --- Auth ----------------------------------------------------------------
@@ -138,8 +145,8 @@ Add-Content $LogFile "[$TS] Output: $OutputPreview"
 # --- If a Telegram message was sent, log it ------------------------------
 # The prompt instructs the AI to print a line: SENT_TG: <message>
 $SentLine = ($Output -split "`n") | Where-Object { $_ -match "^SENT_TG:" } | Select-Object -First 1
-if ($SentLine) {
-    $SentMsg = ($SentLine -replace "^SENT_TG:\s*", "").Trim()
+$SentMsg = if ($SentLine) { ($SentLine -replace "^SENT_TG:\s*", "").Trim() } else { "" }
+if ($SentMsg) {
     $Display = if ($SentMsg.Length -gt 200) { $SentMsg.Substring(0, 200) } else { $SentMsg }
 
     $DbTS = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
